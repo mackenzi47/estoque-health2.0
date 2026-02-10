@@ -1,6 +1,7 @@
 from fastapi import FastAPI
-from app.routers import wms_posicoes
 
-app = FastAPI(title="Estoque Health")
+app = FastAPI()
 
-app.include_router(wms_posicoes.router, prefix="/wms/posicoes", tags=["WMS - Posições"])
+@app.get("/")
+def root():
+    return {"status": "ok", "docs": "/docs"}
