@@ -2,17 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-:root{
-  --bg: #0b0f14;
-  --panel: rgba(255,255,255,.04);
-  --panel2: rgba(255,255,255,.06);
-  --border: rgba(255,255,255,.10);
-  --text: rgba(255,255,255,.92);
-  --muted: rgba(255,255,255,.65);
-}
-body{
-  background: radial-gradient(1200px 700px at 20% 0%, rgba(90,120,255,.12), transparent 55%),
-              radial-gradient(900px 600px at 80% 10%, rgba(0,255,170,.10), transparent 55%),
-              var(--bg);
-  color: var(--text);
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  background-color: #f4f7f9; /* Cor de fundo do seu dashboard */
 }

@@ -2,10 +2,18 @@
 export default {
   content: [
     "./index.html",
-    "./src/**/*.{js,jsx,ts,tsx}",
+    "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        // Cores exatas do seu modelo de dashboard
+        brandBlue: '#1e5bb0',
+        brandGreen: '#43a047',
+        brandOrange: '#f2994a',
+        brandRed: '#eb5757',
+      }
+    },
   },
   plugins: [],
 }
