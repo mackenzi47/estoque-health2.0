@@ -1,119 +1,92 @@
 import React, { useEffect, useState } from 'react';
-import { 
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, 
-  ResponsiveContainer, PieChart, Pie, Cell 
-} from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line, ComposedChart, Cell, PieChart, Pie } from 'recharts';
 import { Package, ThumbsUp, Clock, TrendingUp, CheckCircle, AlertTriangle } from 'lucide-react';
 import api from '../services/api';
 
 const Dashboard = () => {
   const [data, setData] = useState(null);
 
-  // Simulação de dados baseada na imagem enviada
-  const chartData = [
-    { name: '10/05', posicoes: 260, media: 360 },
-    { name: '11/05', posicoes: 350, media: 340 },
-    { name: '12/05', posicoes: 280, media: 370 },
-    { name: '13/05', posicoes: 330, media: 390 },
-    { name: '14/05', posicoes: 400, media: 410 },
-  ];
+  useEffect(() => {
+    api.get('/dashboard/summary')
+      .then(res => setData(res.data))
+      .catch(err => console.error("Erro ao carregar dados:", err));
+  }, []);
 
-  const pieData = [
-    { name: 'Acuracidade', value: 99.96 },
-    { name: 'Restante', value: 0.04 },
-  ];
+  if (!data) return <div className="flex h-screen items-center justify-center bg-slate-50 font-bold">Carregando Dashboard...</div>;
 
   return (
-    <div className="p-6 bg-slate-100 min-h-screen font-sans">
+    <div className="min-h-screen bg-[#f4f7f9] p-4 md:p-8 font-sans">
       {/* HEADER DE FILTROS */}
-      <div className="bg-white p-4 rounded-lg shadow-sm mb-6 flex flex-wrap gap-4 text-xs font-bold text-slate-600">
-        <div className="flex flex-col"><span>Data Base:</span> <input type="text" value="21/05/2024" className="border p-1 rounded" readOnly /></div>
-        <div className="flex flex-col"><span>Inventário:</span> <select className="border p-1 rounded"><option>Inventário Geral</option></select></div>
-        <div className="flex flex-col"><span>Setor:</span> <select className="border p-1 rounded"><option>Todos</option></select></div>
+      <div className="mb-6 flex flex-wrap gap-4 rounded-xl bg-white p-4 shadow-sm text-[10px] font-bold text-slate-500 uppercase">
+        <div className="flex flex-col border-r pr-4"><span>Data Base:</span> <span className="text-slate-900">21/05/2024</span></div>
+        <div className="flex flex-col border-r pr-4"><span>Inventário:</span> <span className="text-slate-900">Geral</span></div>
+        <div className="flex flex-col"><span>Setor:</span> <span className="text-slate-900">Todos</span></div>
       </div>
 
-      {/* CARDS SUPERIORES */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
-        <StatCard title="Posições Ativas" value="4.078" icon={<Package />} color="bg-blue-600" />
-        <StatCard title="Posições Contadas" value="3.210" icon={<ThumbsUp />} color="bg-green-600" />
-        <StatCard title="Posições Pendentes" value="868" icon={<Clock />} color="bg-orange-500" />
-        <StatCard title="% de Avanço" value="78,7%" icon={<TrendingUp />} color="bg-green-500" />
-        <StatCard title="Acuracidade" value="99,96%" icon={<CheckCircle />} color="bg-blue-500" />
-        <StatCard title="Divergências" value="22" icon={<AlertTriangle />} color="bg-red-500" />
+      {/* CARDS INDICADORES */}
+      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
+        <StatCard title="Posições Ativas" value={data.cards.ativas} color="bg-[#1e5bb0]" icon={<Package size={16}/>} />
+        <StatCard title="Posições Contadas" value={data.cards.contadas} color="bg-[#43a047]" icon={<ThumbsUp size={16}/>} />
+        <StatCard title="Posições Pendentes" value={data.cards.pendentes} color="bg-[#f2994a]" icon={<Clock size={16}/>} />
+        <StatCard title="% de Avanço" value={data.cards.avanco} color="bg-[#27ae60]" icon={<TrendingUp size={16}/>} />
+        <StatCard title="Acuracidade" value={data.cards.acuracidade} color="bg-[#2d9cdb]" icon={<CheckCircle size={16}/>} />
+        <StatCard title="Divergências" value={data.cards.divergencias} color="bg-[#eb5757]" icon={<AlertTriangle size={16}/>} />
       </div>
 
-      {/* GRÁFICOS CENTRAIS */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        {/* Avanço Diário */}
-        <div className="lg:col-span-2 bg-white p-4 rounded-xl shadow-sm">
-          <h3 className="text-sm font-bold mb-4">Avanço Diário de Contagem</h3>
-          <div className="h-64">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* GRÁFICO PRINCIPAL */}
+        <div className="rounded-xl bg-white p-6 shadow-md lg:col-span-2">
+          <h3 className="mb-6 text-sm font-bold text-slate-700">Avanço Diário de Contagem</h3>
+          <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" />
-                <YAxis />
+              <ComposedChart data={data.grafico_avanco}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 11, fill: '#64748b'}} />
+                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 11, fill: '#64748b'}} />
                 <Tooltip />
-                <Bar dataKey="posicoes" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                <Line type="monotone" dataKey="media" stroke="#f59e0b" strokeWidth={2} />
-              </BarChart>
+                <Bar dataKey="posicoes" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40} />
+                <Line type="monotone" dataKey="media" stroke="#f59e0b" strokeWidth={3} dot={{r: 4, fill: '#f59e0b'}} />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Acuracidade Circular */}
-        <div className="bg-white p-4 rounded-xl shadow-sm flex flex-col items-center">
-          <h3 className="text-sm font-bold mb-4">Acuracidade</h3>
-          <div className="relative h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={pieData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                  <Cell fill="#3b82f6" />
-                  <Cell fill="#e2e8f0" />
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="absolute inset-0 flex items-center justify-center font-bold text-2xl">99,96%</div>
+        {/* TABELA DE PENDÊNCIAS */}
+        <div className="overflow-hidden rounded-xl bg-white shadow-md">
+          <div className="bg-[#2c3e50] p-3 text-center text-xs font-bold uppercase tracking-widest text-white">
+            Posições Pendentes
           </div>
-        </div>
-      </div>
-
-      {/* TABELA INFERIOR */}
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <div className="bg-slate-800 text-white p-3 text-sm font-bold">Posições Pendentes</div>
-        <table className="w-full text-left text-sm border-collapse">
-          <thead>
-            <tr className="bg-slate-100 border-b">
-              <th className="p-3">Posição</th>
-              <th className="p-3">Região</th>
-              <th className="p-3">Produto</th>
-              <th className="p-3">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {['A12-05-03', 'B05-07-02', 'C03-02-01'].map((pos, i) => (
-              <tr key={i} className="border-b">
-                <td className="p-3">{pos}</td>
-                <td className="p-3">Setor {i + 1}</td>
-                <td className="p-3">Material Hosp. {i}</td>
-                <td className="p-3 text-orange-500 font-bold">Pendente</td>
+          <table className="w-full text-left text-[11px]">
+            <thead className="bg-slate-50 border-b">
+              <tr className="text-slate-400 font-bold">
+                <th className="p-3 uppercase">Posição</th>
+                <th className="p-3 uppercase">Produto</th>
+                <th className="p-3 text-center uppercase">Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {data.tabela_pendentes.map((item, i) => (
+                <tr key={i} className="hover:bg-slate-50 transition-colors">
+                  <td className="p-3 font-bold text-slate-900">{item.pos}</td>
+                  <td className="p-3 text-slate-600">{item.produto}</td>
+                  <td className="p-3 text-center text-orange-500 font-black uppercase text-[10px]">{item.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 };
 
-// Componente de Card Reutilizável
-const StatCard = ({ title, value, icon, color }) => (
-  <div className={`${color} text-white p-4 rounded-xl shadow-md flex flex-col justify-between`}>
-    <div className="flex justify-between items-center opacity-80">
-      <span className="text-xs font-semibold uppercase">{title}</span>
-      {React.cloneElement(icon, { size: 18 })}
+const StatCard = ({ title, value, color, icon }) => (
+  <div className={`${color} flex flex-col justify-between rounded-xl p-4 text-white shadow-lg transition-all hover:scale-105`}>
+    <div className="flex items-center justify-between opacity-80">
+      <span className="text-[9px] font-bold uppercase tracking-wider">{title}</span>
+      {icon}
     </div>
-    <div className="text-2xl font-bold mt-2">{value}</div>
+    <div className="mt-2 text-3xl font-black">{value}</div>
   </div>
 );
 

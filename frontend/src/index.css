@@ -2,8 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Estilos globais para garantir o fundo igual à imagem */
 body {
   margin: 0;
+  background-color: #f4f7f9;
+  color: #1e293b;
   font-family: 'Inter', sans-serif;
-  background-color: #f4f7f9; /* Cor de fundo do seu dashboard */
 }

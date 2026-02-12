@@ -7,11 +7,10 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Cores exatas do seu modelo de dashboard
-        brandBlue: '#1e5bb0',
-        brandGreen: '#43a047',
-        brandOrange: '#f2994a',
-        brandRed: '#eb5757',
+        'dash-blue': '#1e5bb0',
+        'dash-green': '#43a047',
+        'dash-orange': '#f2994a',
+        'dash-red': '#eb5757',
       }
     },
   },
