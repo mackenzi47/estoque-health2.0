@@ -9,7 +9,7 @@ const Inventario = () => {
   
   const [formData, setFormData] = useState({
     codigo_barras: '',
-    local: 'A2031', // Local fixo conforme solicitado
+    local: 'A2031',
     sku: '',
     lote_senior: '',
     lote_industria: '',
@@ -23,15 +23,13 @@ const Inventario = () => {
     setMensagem({ tipo: '', texto: '' });
 
     try {
-      // Gravação direta no Firebase Firestore
       await addDoc(collection(db, "auditorias"), {
         ...formData,
         data_auditoria: serverTimestamp()
       });
 
-      setMensagem({ tipo: 'sucesso', texto: 'Auditoria salva com sucesso no Firebase!' });
+      setMensagem({ tipo: 'sucesso', texto: 'Auditoria salva com sucesso!' });
       
-      // Limpa apenas os campos variáveis
       setFormData({
         ...formData,
         codigo_barras: '',
@@ -43,7 +41,7 @@ const Inventario = () => {
       });
     } catch (error) {
       console.error("Erro:", error);
-      setMensagem({ tipo: 'erro', texto: 'Erro ao conectar com o Firebase. Verifique o console.' });
+      setMensagem({ tipo: 'erro', texto: 'Erro ao conectar com o Firebase. Verifique as regras de banco de dados.' });
     } finally {
       setLoading(false);
     }
@@ -51,7 +49,7 @@ const Inventario = () => {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      {/* Avisos de Segurança e Instrução mantidos conforme solicitado */}
+      {/* Avisos Mantidos */}
       <div className="mb-6 space-y-3">
         <div className="bg-amber-50 border-l-4 border-amber-400 p-4 flex items-start gap-3">
           <AlertTriangle className="text-amber-500 mt-1" size={20} />
@@ -76,118 +74,63 @@ const Inventario = () => {
             <Package size={24} />
             <h2 className="text-xl font-bold">Aba de Produtividade - Ybera Group</h2>
           </div>
-          <span className="bg-blue-600 px-3 py-1 rounded text-sm font-medium uppercase tracking-wider">Coleta em Tempo Real</span>
         </div>
 
         <form onSubmit={handleSalvar} className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
-            {/* Campo: Código de Barras */}
             <div className="space-y-2">
               <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 <Barcode size={18} className="text-blue-600" /> Código de Barras
               </label>
-              <input
-                required
-                className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none bg-slate-50"
-                value={formData.codigo_barras}
-                onChange={(e) => setFormData({...formData, codigo_barras: e.target.value})}
-                placeholder="Bipe o código..."
-              />
+              <input required className="w-full p-3 border border-slate-300 rounded-lg" value={formData.codigo_barras} onChange={(e) => setFormData({...formData, codigo_barras: e.target.value})} />
             </div>
 
-            {/* Campo: Local (Fixo A2031) */}
             <div className="space-y-2">
               <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 <MapPin size={18} className="text-blue-600" /> Local
               </label>
-              <input
-                disabled
-                className="w-full p-3 border border-slate-200 rounded-lg bg-slate-100 text-slate-500 cursor-not-allowed"
-                value={formData.local}
-              />
+              <input disabled className="w-full p-3 border border-slate-200 rounded-lg bg-slate-100" value={formData.local} />
             </div>
 
-            {/* Campo: SKU */}
             <div className="space-y-2">
               <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 <Tag size={18} className="text-blue-600" /> SKU
               </label>
-              <input
-                required
-                className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                value={formData.sku}
-                onChange={(e) => setFormData({...formData, sku: e.target.value})}
-                placeholder="Digite o SKU..."
-              />
+              <input required className="w-full p-3 border border-slate-300 rounded-lg" value={formData.sku} onChange={(e) => setFormData({...formData, sku: e.target.value})} />
             </div>
 
-            {/* Campo: Lote Sênior */}
             <div className="space-y-2">
               <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 <QrCode size={18} className="text-blue-600" /> Lote Sênior
               </label>
-              <input
-                required
-                className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                value={formData.lote_senior}
-                onChange={(e) => setFormData({...formData, lote_senior: e.target.value})}
-              />
+              <input required className="w-full p-3 border border-slate-300 rounded-lg" value={formData.lote_senior} onChange={(e) => setFormData({...formData, lote_senior: e.target.value})} />
             </div>
 
-            {/* Campo: Lote Indústria */}
             <div className="space-y-2">
               <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 <QrCode size={18} className="text-blue-600" /> Lote Indústria
               </label>
-              <input
-                required
-                className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                value={formData.lote_industria}
-                onChange={(e) => setFormData({...formData, lote_industria: e.target.value})}
-              />
+              <input required className="w-full p-3 border border-slate-300 rounded-lg" value={formData.lote_industria} onChange={(e) => setFormData({...formData, lote_industria: e.target.value})} />
             </div>
 
-            {/* Campo: Validade */}
             <div className="space-y-2">
               <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 <Calendar size={18} className="text-blue-600" /> Validade
               </label>
-              <input
-                type="date"
-                required
-                className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                value={formData.validade}
-                onChange={(e) => setFormData({...formData, validade: e.target.value})}
-              />
+              <input type="date" required className="w-full p-3 border border-slate-300 rounded-lg" value={formData.validade} onChange={(e) => setFormData({...formData, validade: e.target.value})} />
             </div>
 
-            {/* Campo: Condição */}
             <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-semibold text-slate-700">Condição do Produto</label>
-              <select 
-                className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                value={formData.condicao}
-                onChange={(e) => setFormData({...formData, condicao: e.target.value})}
-              >
+              <select className="w-full p-3 border border-slate-300 rounded-lg" value={formData.condicao} onChange={(e) => setFormData({...formData, condicao: e.target.value})}>
                 <option value="BOM">BOM ESTADO</option>
-                <option value="AVARIADO">AVARIADO (ENVIAR P/ QUARENTENA)</option>
+                <option value="AVARIADO">AVARIADO</option>
                 <option value="VENCIDO">VENCIDO</option>
               </select>
             </div>
           </div>
 
-          {mensagem.texto && (
-            <div className={`mt-6 p-3 rounded-lg text-center font-medium ${mensagem.tipo === 'sucesso' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-              {mensagem.texto}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className={`mt-8 w-full p-4 bg-blue-600 text-white rounded-lg font-bold text-lg flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors shadow-md ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
+          <button type="submit" disabled={loading} className="mt-8 w-full p-4 bg-blue-600 text-white rounded-lg font-bold flex items-center justify-center gap-2">
             {loading ? 'Salvando...' : <><Save size={24} /> CONFIRMAR AUDITORIA</>}
           </button>
         </form>

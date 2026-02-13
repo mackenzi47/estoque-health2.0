@@ -1,9 +1,8 @@
-// Import the functions you need from the SDKs you need
+// Import as funções necessárias dos SDKs
 import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+import { getFirestore } from "firebase/firestore"; // Importação que faltava
 
-// Your web app's Firebase configuration
+// Sua configuração do Firebase (mantida conforme você enviou)
 const firebaseConfig = {
   apiKey: "AIzaSyAPJxAWb-OQz-yxOdjDy2AXG1xsdAar9tc",
   authDomain: "estoque-health-ybera.firebaseapp.com",
@@ -13,5 +12,8 @@ const firebaseConfig = {
   appId: "1:483734994319:web:32d954e098f50863b41ffa"
 };
 
-// Initialize Firebase
+// Inicializa o Firebase
 const app = initializeApp(firebaseConfig);
+
+// Inicializa e EXPORTA o Firestore para usar no Inventário
+export const db = getFirestore(app);
