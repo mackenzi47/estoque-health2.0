@@ -1,658 +1,526 @@
+// src/pages/Inventario.jsx
+// Formulário de auditoria diária — visual dark/gold
+// Campos: Nº Inventário, Local (D-22-1-1), EAN (Zebra), Código Produto,
+//         Lote Indústria, Lote Senior, Qtd Sistêmica, Qtd Física,
+//         Condição, Validade, Tipo de Divergência
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../firebaseConfig";
 import {
-  addDoc,
-  collection,
-  serverTimestamp,
-  query,
-  where,
-  limit,
-  getDocs,
+  addDoc, collection, serverTimestamp,
+  query, where, limit, getDocs,
 } from "firebase/firestore";
+import { Calendar, MapPin, Barcode, Hash, Package, AlertTriangle, CheckCircle2, Clock, Layers } from "lucide-react";
 import {
-  Calendar,
-  MapPin,
-  Layers,
-  Barcode,
-  Hash,
-  Package,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-} from "lucide-react";
+  toISODate, parseEndereco, getValidadeBucket, getDiasParaVencer,
+  startOfDay, safeNum, TIPOS_DIVERGENCIA, CONDICOES,
+} from "../utils/estoqueUtils";
+
+// ─── Paleta ───────────────────────────────────────────────────────────────────
+const C = {
+  bg:     "#07070a",
+  panel:  "rgba(255,255,255,0.055)",
+  border: "rgba(255,255,255,0.10)",
+  text:   "rgba(255,255,255,0.92)",
+  muted:  "rgba(255,255,255,0.50)",
+  pink:   "#ff3aa8",
+  orange: "#ff7a18",
+  blue:   "#4aa3ff",
+  purple: "#8b5cf6",
+  green:  "#22d3a0",
+  red:    "#ff4d6a",
+  amber:  "#fbbf24",
+};
+
+const cardStyle = {
+  borderRadius: 18,
+  border: `1px solid ${C.border}`,
+  background: C.panel,
+  boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
+  backdropFilter: "blur(10px)",
+};
+
+const inputStyle = {
+  background: "rgba(255,255,255,0.06)",
+  border: `1px solid ${C.border}`,
+  borderRadius: 10,
+  color: C.text,
+  fontSize: 13,
+  fontWeight: 700,
+  padding: "10px 14px",
+  outline: "none",
+  width: "100%",
+  transition: "border .2s",
+};
 
 const Inventario = () => {
-  const [loading, setLoading] = useState(false);
-  const [inventarioId, setInventarioId] = useState("Inventário Geral");
+  const [loading,      setLoading]      = useState(false);
+  const [numInventario, setNumInventario] = useState("");
 
   const [form, setForm] = useState({
-    endereco: "B1031",
-    sku: "",
-    codigo_barras: "",
-
-    // vindo do cadastro (posicoes)
-    nome_produto_real: "",
-    qtd_sistemica: "",
-    validade: "",
+    endereco:       "",
+    codigo_barras:  "",
+    codigo_produto: "",
+    nome_produto:   "",
+    qtd_sistemica:  "",
+    qtd_fisica:     "",
     lote_industria: "",
-    lote_senior: "",
-
-    // preenchido no inventário diário
-    qtd_fisica: "",
-    condicao: "BOM",
-
-    observacao: "",
+    lote_senior:    "",
+    validade:       "",
+    condicao:       "BOM",
+    tipo_divergencia: "NENHUMA",
+    observacao:     "",
   });
 
-  const [cadastroInfo, setCadastroInfo] = useState({
-    status: "idle", // idle | searching | found | notfound | invalid
-    msg: "Aguardando Endereço + SKU/EAN...",
+  const [produtoInfo, setProdutoInfo] = useState({
+    status: "idle", // idle | searching | found | notfound
+    msg: "Aguardando EAN...",
   });
 
   const barcodeRef = useRef(null);
-  useEffect(() => {
-    setTimeout(() => barcodeRef.current?.focus?.(), 120);
-  }, []);
+  useEffect(() => { setTimeout(() => barcodeRef.current?.focus?.(), 120); }, []);
 
+  // ── "Hoje" e dia_key ────────────────────────────────────────────────────────
+  const hoje   = useMemo(() => startOfDay(new Date()), []);
   const dia_key = useMemo(() => toISODate(new Date()), []);
 
+  // ── Parse do endereço ────────────────────────────────────────────────────────
   const parsed = useMemo(() => parseEndereco(form.endereco), [form.endereco]);
 
-  // ===== Cálculos de quantidade
-  const qtdS = toNum(form.qtd_sistemica);
-  const qtdF = toNum(form.qtd_fisica);
-
+  // ── Cálculos de divergência ───────────────────────────────────────────────
   const divergencia = useMemo(() => {
     if (form.qtd_sistemica === "" || form.qtd_fisica === "") return null;
-    return qtdF - qtdS;
-  }, [form.qtd_sistemica, form.qtd_fisica, qtdF, qtdS]);
+    return safeNum(form.qtd_fisica) - safeNum(form.qtd_sistemica);
+  }, [form.qtd_sistemica, form.qtd_fisica]);
 
   const resultado = useMemo(() => {
     if (divergencia === null) return "—";
-    if (divergencia === 0) return "OK";
-    if (divergencia < 0) return "FALTA";
+    if (divergencia === 0)   return "OK";
+    if (divergencia < 0)     return "FALTA";
     return "SOBRA";
   }, [divergencia]);
 
-  const status = useMemo(() => {
-    if (divergencia === null) return "—";
-    return divergencia === 0 ? "OK" : "DIVERGENTE";
-  }, [divergencia]);
+  // ── Vencimento ────────────────────────────────────────────────────────────
+  const vencInfo = useMemo(() => {
+    if (!form.validade) return { bucket: "SEM_VALIDADE", label: "—", badge: "Sem validade", color: C.muted };
+    const bucket = getValidadeBucket(form.validade, hoje);
+    const dias   = getDiasParaVencer(form.validade, hoje);
+    const color  = bucket === "VENCIDO" ? C.red : bucket === "CRITICO_30D" ? C.amber : bucket === "CRITICO_90D" ? C.orange : C.green;
+    const badge  = bucket === "VENCIDO" ? "VENCIDO" : bucket === "CRITICO_30D" ? `Crítico ${dias}d` : bucket === "CRITICO_90D" ? `A vencer ${dias}d` : `OK ${dias}d`;
+    return { bucket, label: `${form.validade} (${dias}d)`, badge, color };
+  }, [form.validade, hoje]);
 
-  // ===== Cálculo de vencimento (sempre que mudar validade)
-  const vencInfo = useMemo(() => getValidadeInfo(form.validade), [form.validade]);
-
-  // ===== BUSCA NO CADASTRO (posicoes) por (endereco+sku) ou (endereco+ean)
+  // ── Busca produto por EAN ─────────────────────────────────────────────────
   useEffect(() => {
     let alive = true;
+    const ean = form.codigo_barras.trim();
 
-    const doLookup = async () => {
-      if (!parsed.ok) {
-        setCadastroInfo({ status: "invalid", msg: "Endereço inválido (ex: B1031, G0571)." });
-        return;
-      }
+    if (!ean) {
+      setProdutoInfo({ status: "idle", msg: "Aguardando EAN..." });
+      return;
+    }
 
-      const sku = String(form.sku || "").trim();
-      const ean = String(form.codigo_barras || "").trim();
+    setProdutoInfo({ status: "searching", msg: "Buscando produto..." });
 
-      if (!sku && !ean) {
-        setCadastroInfo({ status: "idle", msg: "Aguardando Endereço + SKU/EAN..." });
-        return;
-      }
-
-      setCadastroInfo({ status: "searching", msg: "Buscando cadastro da posição..." });
-
+    const t = setTimeout(async () => {
       try {
-        let docFound = null;
-
-        if (sku) {
-          const q1 = query(
-            collection(db, "posicoes"),
-            where("endereco", "==", parsed.endereco),
-            where("sku", "==", sku),
-            limit(1)
-          );
-          const snap1 = await getDocs(q1);
-          if (!snap1.empty) docFound = { id: snap1.docs[0].id, ...snap1.docs[0].data() };
-        }
-
-        if (!docFound && ean) {
-          const q2 = query(
-            collection(db, "posicoes"),
-            where("endereco", "==", parsed.endereco),
-            where("codigo_barras", "==", ean),
-            limit(1)
-          );
-          const snap2 = await getDocs(q2);
-          if (!snap2.empty) docFound = { id: snap2.docs[0].id, ...snap2.docs[0].data() };
-        }
-
+        const q = query(collection(db, "produtos"), where("codigo_barras", "==", ean), limit(1));
+        const snap = await getDocs(q);
         if (!alive) return;
 
-        if (docFound) {
-          setCadastroInfo({ status: "found", msg: "Cadastro encontrado ✅" });
-
+        if (!snap.empty) {
+          const prod = snap.docs[0].data();
+          setProdutoInfo({ status: "found", msg: `✅ ${prod.nome_produto}` });
           setForm((p) => ({
             ...p,
-            nome_produto_real: docFound.nome_produto || p.nome_produto_real || "",
-            sku: p.sku || docFound.sku || "",
-            codigo_barras: p.codigo_barras || docFound.codigo_barras || "",
-            qtd_sistemica: p.qtd_sistemica !== "" ? p.qtd_sistemica : String(docFound.qtd_sistemica ?? ""),
-            validade: p.validade || docFound.validade || "",
-            lote_industria: p.lote_industria || docFound.lote_industria || "",
-            lote_senior: p.lote_senior || docFound.lote_senior || "",
+            codigo_produto: p.codigo_produto || prod.codigo_produto || "",
+            nome_produto:   prod.nome_produto || p.nome_produto,
           }));
         } else {
-          setCadastroInfo({ status: "notfound", msg: "Não existe cadastro para esse endereço + SKU/EAN." });
+          setProdutoInfo({ status: "notfound", msg: "EAN não encontrado no cadastro. Preencha manualmente." });
         }
       } catch (err) {
         console.error(err);
-        if (!alive) return;
-        setCadastroInfo({ status: "notfound", msg: "Erro ao buscar cadastro (ver console)." });
+        if (alive) setProdutoInfo({ status: "notfound", msg: "Erro ao buscar produto." });
       }
-    };
+    }, 300);
 
-    const t = setTimeout(doLookup, 250);
-    return () => {
-      alive = false;
-      clearTimeout(t);
-    };
-  }, [parsed.ok, parsed.endereco, form.sku, form.codigo_barras]); // eslint-disable-line
+    return () => { alive = false; clearTimeout(t); };
+  }, [form.codigo_barras]);
 
+  // ── Reset item (mantém endereço e nº inventário) ──────────────────────────
   const resetItem = () => {
     setForm((p) => ({
       ...p,
-      sku: "",
-      codigo_barras: "",
-      nome_produto_real: "",
-      qtd_sistemica: "",
-      validade: "",
+      codigo_barras:  "",
+      codigo_produto: "",
+      nome_produto:   "",
+      qtd_sistemica:  "",
+      qtd_fisica:     "",
       lote_industria: "",
-      lote_senior: "",
-      qtd_fisica: "",
-      condicao: "BOM",
-      observacao: "",
+      lote_senior:    "",
+      validade:       "",
+      condicao:       "BOM",
+      tipo_divergencia: "NENHUMA",
+      observacao:     "",
     }));
-    setCadastroInfo({ status: "idle", msg: "Aguardando Endereço + SKU/EAN..." });
+    setProdutoInfo({ status: "idle", msg: "Aguardando EAN..." });
     setTimeout(() => barcodeRef.current?.focus?.(), 80);
   };
 
+  // ── Salvar ────────────────────────────────────────────────────────────────
   const handleSalvar = async (e) => {
     e.preventDefault();
-
-    if (!parsed.ok) return alert("Endereço inválido. Use padrão tipo B1031 (Letra + 2 dígitos + nível + 1).");
-    if (!String(form.sku).trim() && !String(form.codigo_barras).trim())
-      return alert("Informe SKU ou Código de barras.");
-    if (!String(form.nome_produto_real).trim())
-      return alert("Nome do produto está vazio (cadastre a posição ou preencha manualmente).");
-    if (form.qtd_sistemica === "") return alert("Qtd Sistêmica está vazia.");
-    if (form.qtd_fisica === "") return alert("Insira a quantidade física.");
-
-    // Se vencido, opcionalmente você pode alertar
-    // if (vencInfo.bucket === "VENCIDO") { /* alert opcional */ }
+    if (!numInventario.trim()) return alert("Informe o Nº do Inventário.");
+    if (!parsed.ok) return alert("Endereço inválido. Use o padrão D-22-1-1.");
+    if (!form.codigo_barras.trim() && !form.codigo_produto.trim()) return alert("Informe o EAN ou Código do Produto.");
+    if (!form.nome_produto.trim()) return alert("Nome do produto está vazio.");
+    if (form.qtd_sistemica === "") return alert("Informe a quantidade sistêmica.");
+    if (form.qtd_fisica === "")    return alert("Informe a quantidade física.");
 
     setLoading(true);
     try {
       await addDoc(collection(db, "auditorias"), {
+        // Inventário
         dia_key,
-        inventario_id: inventarioId,
-        data_auditoria: serverTimestamp(),
+        inventario_id:    numInventario.trim(),
+        data_auditoria:   serverTimestamp(),
 
-        // endereço
-        endereco: parsed.endereco,
-        local: parsed.endereco, // Dashboard usa isso como Posição
-        rua: parsed.rua,
-        local_num: parsed.localNum,
-        nivel: parsed.nivel,
+        // Localização
+        endereco:         parsed.endereco,
+        local:            parsed.endereco,
+        rua:              parsed.rua,
+        local_num:        parsed.localNum,
+        nivel:            parsed.nivel,
+        posicao:          parsed.posicao,
 
-        // item
-        nome_produto_real: String(form.nome_produto_real).trim(),
-        sku: String(form.sku || "").trim(),
-        codigo_barras: String(form.codigo_barras || "").trim(),
+        // Produto
+        codigo_barras:    form.codigo_barras.trim(),
+        codigo_produto:   form.codigo_produto.trim(),
+        nome_produto:     form.nome_produto.trim(),
 
-        // quantidades
-        qtd_sistemica: toNum(form.qtd_sistemica),
-        qtd_fisica: toNum(form.qtd_fisica),
-        divergencia: Number(divergencia ?? 0),
+        // Quantidades
+        qtd_sistemica:    safeNum(form.qtd_sistemica),
+        qtd_fisica:       safeNum(form.qtd_fisica),
+        divergencia:      Number(divergencia ?? 0),
+        resultado,
+        status:           divergencia === 0 ? "OK" : "DIVERGENTE",
 
-        // calculados
-        status,     // OK / DIVERGENTE
-        resultado,  // OK / FALTA / SOBRA
+        // Rastreio
+        lote_industria:   form.lote_industria.trim().toUpperCase(),
+        lote_senior:      form.lote_senior.trim().toUpperCase(),
+        validade:         form.validade || null,
+        validade_bucket:  vencInfo.bucket,
+        dias_para_vencer: getDiasParaVencer(form.validade, hoje),
+        is_vencido:       vencInfo.bucket === "VENCIDO",
 
-        // rastreio
-        validade: form.validade || null, // ISO yyyy-mm-dd
-        validade_bucket: vencInfo.bucket, // VENCIDO / CRITICO_30D / CRITICO_90D / OK / SEM_VALIDADE
-        dias_para_vencer: vencInfo.dias,  // número (negativo se vencido)
-        is_vencido: vencInfo.bucket === "VENCIDO",
-
-        lote_industria: String(form.lote_industria || "").trim().toUpperCase(),
-        lote_senior: String(form.lote_senior || "").trim().toUpperCase(),
-        condicao: form.condicao,
-
-        observacao: String(form.observacao || "").trim(),
+        // Qualidade
+        condicao:         form.condicao,
+        tipo_divergencia: form.tipo_divergencia,
+        observacao:       form.observacao.trim(),
       });
 
-      alert("✅ Gravado no inventário do dia!");
-
-      // mantém endereço e limpa o resto
-      setForm((p) => ({
-        ...p,
-        sku: "",
-        codigo_barras: "",
-        nome_produto_real: "",
-        qtd_sistemica: "",
-        validade: "",
-        lote_industria: "",
-        lote_senior: "",
-        qtd_fisica: "",
-        condicao: "BOM",
-        observacao: "",
-      }));
-      setCadastroInfo({ status: "idle", msg: "Aguardando Endereço + SKU/EAN..." });
-      setTimeout(() => barcodeRef.current?.focus?.(), 80);
+      alert("✅ Auditoria registrada!");
+      resetItem();
     } catch (err) {
       console.error(err);
-      alert("❌ Erro ao salvar");
+      alert("❌ Erro ao salvar.");
     }
     setLoading(false);
   };
 
+  // ── KPI Cards topo ────────────────────────────────────────────────────────
+  const kpis = [
+    { label: "Qtd Sistêmica", val: form.qtd_sistemica === "" ? "—" : `${safeNum(form.qtd_sistemica)} UN`, color: C.blue,   icon: <Package size={18}/> },
+    { label: "Qtd Física",    val: form.qtd_fisica    === "" ? "—" : `${safeNum(form.qtd_fisica)} UN`,    color: C.green,  icon: <Hash size={18}/> },
+    { label: "Divergência",   val: divergencia === null ? "—" : `${divergencia > 0 ? "+" : ""}${divergencia}`,
+      color: divergencia === null ? C.muted : divergencia === 0 ? C.green : C.red, icon: <AlertTriangle size={18}/> },
+    { label: "Resultado",     val: resultado, color: resultado === "OK" ? C.green : resultado === "—" ? C.muted : resultado === "FALTA" ? C.red : C.amber, icon: <CheckCircle2 size={18}/> },
+    { label: "Validade",      val: vencInfo.badge, color: vencInfo.color, icon: <Clock size={18}/> },
+  ];
+
   return (
-    <div className="min-h-screen bg-[#eef2f7] p-4 text-slate-700">
-      {/* Header */}
-      <div className="mb-4 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex items-center justify-between bg-gradient-to-r from-[#1f2a44] to-[#2b3a5c] px-6 py-4 text-white">
-          <div>
-            <div className="text-[10px] font-black uppercase tracking-widest text-white/70">
-              Inventário Diário • Vencimento automático
+    <div style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"system-ui,-apple-system,'Segoe UI',sans-serif", padding:"20px 18px 40px" }}>
+      <style>{`
+        ::-webkit-scrollbar{width:6px;height:6px}
+        ::-webkit-scrollbar-track{background:rgba(255,255,255,0.04)}
+        ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:99px}
+        input,select{color-scheme:dark}
+        input:focus,select:focus{border-color:rgba(74,163,255,0.6) !important;box-shadow:0 0 0 3px rgba(74,163,255,0.12)}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+        .fade{animation:fadeUp .35s ease both}
+      `}</style>
+
+      <div style={{ maxWidth:1100, margin:"0 auto" }}>
+
+        {/* ── HEADER ─────────────────────────────────────────────────────── */}
+        <div className="fade" style={{ ...cardStyle, padding:"18px 24px", marginBottom:16, background:"linear-gradient(135deg,rgba(139,92,246,0.15),rgba(74,163,255,0.08))" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12 }}>
+            <div>
+              <div style={{ fontSize:10, fontWeight:900, letterSpacing:3, textTransform:"uppercase", color:C.muted }}>Inventário Diário</div>
+              <h1 style={{ margin:"4px 0 0", fontSize:20, fontWeight:900, background:"linear-gradient(90deg,#8b5cf6,#4aa3ff)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>
+                Contagem e Auditoria
+              </h1>
             </div>
-            <h1 className="text-lg font-black tracking-wide">Contagem</h1>
-          </div>
-          <div className="text-right">
-            <div className="text-xs font-extrabold text-white/80 flex items-center gap-2 justify-end">
-              <Calendar size={14} />
-              Hoje • {dia_key}
-            </div>
-            <div className="text-[10px] font-black uppercase tracking-widest text-white/60">
-              {inventarioId}
+            <div style={{ display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+              {/* Nº Inventário */}
+              <div>
+                <div style={{ fontSize:9, fontWeight:900, letterSpacing:2, textTransform:"uppercase", color:C.muted, marginBottom:5 }}>Nº Inventário</div>
+                <input
+                  value={numInventario}
+                  onChange={(e) => setNumInventario(e.target.value)}
+                  placeholder="Ex: 372"
+                  style={{ ...inputStyle, width:120, textAlign:"center", fontSize:16, fontWeight:900 }}
+                />
+              </div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:9, fontWeight:900, letterSpacing:2, textTransform:"uppercase", color:C.muted }}>Data</div>
+                <div style={{ fontSize:14, fontWeight:900, color:C.text, marginTop:4 }}>{dia_key}</div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 bg-slate-100 px-4 py-3 md:grid-cols-4">
-          <MiniSelect
-            label="INVENTÁRIO"
-            value={inventarioId}
-            onChange={setInventarioId}
-            options={["Inventário Geral", "Cíclico A", "Cíclico B", "Cíclico C"]}
-          />
-
-          <MiniInput
-            label="ENDEREÇO"
-            value={form.endereco}
-            onChange={(v) => setForm((p) => ({ ...p, endereco: v.toUpperCase().trim() }))}
-            icon={<MapPin size={14} />}
-            placeholder="Ex: B1031"
-            hint={
-              parsed.ok
-                ? `${parsed.rua} • Local ${parsed.localNum} • Nível ${parsed.nivel}`
-                : "Padrão: Letra + 2 dígitos (Local) + 1 dígito (Nível) + 1"
-            }
-            error={!parsed.ok && form.endereco.trim().length > 0}
-          />
-
-          <MiniInput label="RUA (AUTO)" value={parsed.ok ? parsed.rua : "—"} readOnly icon={<Layers size={14} />} />
-          <MiniInput
-            label="LOCAL / NÍVEL (AUTO)"
-            value={parsed.ok ? `Local ${parsed.localNum} • Nível ${parsed.nivel}` : "—"}
-            readOnly
-            icon={<Layers size={14} />}
-          />
-        </div>
-      </div>
-
-      {/* Cards */}
-      <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-5">
-        <CardBI
-          label="Qtd Sistêmica"
-          val={form.qtd_sistemica === "" ? "—" : `${toNum(form.qtd_sistemica)} UN`}
-          color="blue"
-          icon={<Package size={20} />}
-        />
-        <CardBI
-          label="Qtd Física"
-          val={form.qtd_fisica === "" ? "—" : `${toNum(form.qtd_fisica)} UN`}
-          color="green"
-          icon={<Hash size={20} />}
-        />
-        <CardBI
-          label="Divergência"
-          val={divergencia === null ? "—" : `${divergencia > 0 ? "+" : ""}${divergencia}`}
-          color={divergencia === null ? "slate" : divergencia === 0 ? "green" : "red"}
-          icon={<AlertTriangle size={20} />}
-        />
-        <CardBI
-          label="Resultado"
-          val={resultado}
-          color={resultado === "OK" ? "green" : resultado === "—" ? "slate" : "amber"}
-          icon={<CheckCircle2 size={20} />}
-        />
-        <CardBI
-          label="Validade"
-          val={vencInfo.label}
-          color={vencInfo.bucket === "VENCIDO" ? "red" : vencInfo.bucket === "CRITICO_30D" ? "amber" : vencInfo.bucket === "CRITICO_90D" ? "orange" : "slate"}
-          icon={<Clock size={20} />}
-        />
-      </div>
-
-      {/* Form */}
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="border-b bg-white px-6 py-5 flex items-center justify-between">
-          <div>
-            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              Cadastro da posição
+        {/* ── KPI CARDS ────────────────────────────────────────────────── */}
+        <div className="fade" style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:16, animationDelay:".05s" }}>
+          {kpis.map((k) => (
+            <div key={k.label} style={{ ...cardStyle, padding:"14px 16px", position:"relative", overflow:"hidden" }}>
+              <div style={{ position:"absolute", inset:-10, background:k.color, opacity:.08, filter:"blur(16px)" }} />
+              <div style={{ position:"relative" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div style={{ fontSize:9, fontWeight:900, letterSpacing:2, textTransform:"uppercase", color:C.muted }}>{k.label}</div>
+                  <div style={{ color:k.color, opacity:.8 }}>{k.icon}</div>
+                </div>
+                <div style={{ fontSize:22, fontWeight:900, marginTop:6, color:k.color }}>{k.val}</div>
+              </div>
             </div>
-            <div className="text-sm font-black">
-              {cadastroInfo.status === "found" ? (
-                <span className="text-emerald-700">{cadastroInfo.msg}</span>
-              ) : cadastroInfo.status === "searching" ? (
-                <span className="text-slate-600">{cadastroInfo.msg}</span>
-              ) : cadastroInfo.status === "notfound" ? (
-                <span className="text-amber-700">{cadastroInfo.msg}</span>
-              ) : cadastroInfo.status === "invalid" ? (
-                <span className="text-red-700">{cadastroInfo.msg}</span>
-              ) : (
-                <span className="text-slate-600">{cadastroInfo.msg}</span>
-              )}
-            </div>
-            <div className="mt-1 text-xs font-extrabold text-slate-500">
-              Status: <span className="text-slate-800">{status}</span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={resetItem}
-            className="rounded-md border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-600 hover:bg-slate-50"
-          >
-            Novo item
-          </button>
+          ))}
         </div>
 
-        <form onSubmit={handleSalvar} className="p-6 grid grid-cols-1 md:grid-cols-12 gap-4">
-          <Field col="md:col-span-4" label="Código de Barras (EAN)" icon={<Barcode size={14} />}>
-            <input
-              ref={barcodeRef}
-              value={form.codigo_barras}
-              onChange={(e) => setForm((p) => ({ ...p, codigo_barras: e.target.value }))}
-              className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 font-bold outline-none focus:ring-2 focus:ring-blue-200"
-              placeholder="Escaneie aqui..."
-            />
-          </Field>
-
-          <Field col="md:col-span-3" label="SKU" icon={<Hash size={14} />}>
-            <input
-              value={form.sku}
-              onChange={(e) => setForm((p) => ({ ...p, sku: e.target.value }))}
-              className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 font-bold outline-none focus:ring-2 focus:ring-blue-200"
-              placeholder="Código do produto"
-            />
-          </Field>
-
-          <Field col="md:col-span-5" label="Qtd Física" highlight icon={<Hash size={14} />}>
-            <input
-              required
-              type="number"
-              value={form.qtd_fisica}
-              onChange={(e) => setForm((p) => ({ ...p, qtd_fisica: e.target.value }))}
-              className="w-full bg-transparent text-3xl font-black text-blue-900 outline-none"
-              placeholder="0"
-            />
-          </Field>
-
-          <Field col="md:col-span-12" label="Nome do Produto (puxado do cadastro, mas pode editar)" icon={<Package size={14} />}>
-            <input
-              required
-              value={form.nome_produto_real}
-              onChange={(e) => setForm((p) => ({ ...p, nome_produto_real: e.target.value }))}
-              className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 font-bold outline-none focus:ring-2 focus:ring-blue-200"
-              placeholder="Nome do produto..."
-            />
-          </Field>
-
-          <Field col="md:col-span-4" label="Qtd Sistêmica (puxada do cadastro, pode editar)" icon={<Hash size={14} />}>
-            <input
-              required
-              type="number"
-              value={form.qtd_sistemica}
-              onChange={(e) => setForm((p) => ({ ...p, qtd_sistemica: e.target.value }))}
-              className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-xl font-black outline-none focus:ring-2 focus:ring-blue-200"
-              placeholder="0"
-            />
-          </Field>
-
-          <Field col="md:col-span-4" label="Validade (gera vencimento automático)" icon={<Calendar size={14} />}>
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={form.validade || ""}
-                onChange={(e) => setForm((p) => ({ ...p, validade: e.target.value }))}
-                className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-200"
-              />
-              <span className={`shrink-0 rounded-lg px-3 py-2 text-[10px] font-black uppercase ${
-                vencInfo.bucket === "VENCIDO"
-                  ? "bg-red-50 text-red-700"
-                  : vencInfo.bucket === "CRITICO_30D"
-                  ? "bg-amber-50 text-amber-700"
-                  : vencInfo.bucket === "CRITICO_90D"
-                  ? "bg-orange-50 text-orange-700"
-                  : "bg-slate-100 text-slate-600"
-              }`}>
-                {vencInfo.badge}
-              </span>
+        {/* ── FORMULÁRIO ───────────────────────────────────────────────── */}
+        <div className="fade" style={{ ...cardStyle, animationDelay:".10s" }}>
+          {/* Status do produto */}
+          <div style={{ padding:"16px 24px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", background:"rgba(255,255,255,0.02)" }}>
+            <div>
+              <div style={{ fontSize:10, fontWeight:900, letterSpacing:2, textTransform:"uppercase", color:C.muted }}>Produto</div>
+              <div style={{ fontSize:13, fontWeight:900, marginTop:3,
+                color: produtoInfo.status === "found" ? C.green : produtoInfo.status === "notfound" ? C.amber : C.muted
+              }}>
+                {produtoInfo.msg}
+              </div>
             </div>
-          </Field>
-
-          <Field col="md:col-span-4" label="Condição">
-            <select
-              value={form.condicao}
-              onChange={(e) => setForm((p) => ({ ...p, condicao: e.target.value }))}
-              className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 text-xs font-black text-slate-700 outline-none"
-            >
-              <option value="BOM">🟢 BOM</option>
-              <option value="AVARIADO">🔴 AVARIADO</option>
-            </select>
-          </Field>
-
-          <Field col="md:col-span-6" label="Lote Indústria">
-            <input
-              value={form.lote_industria}
-              onChange={(e) => setForm((p) => ({ ...p, lote_industria: e.target.value.toUpperCase() }))}
-              className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 font-bold outline-none focus:ring-2 focus:ring-blue-200"
-              placeholder="IND..."
-            />
-          </Field>
-
-          <Field col="md:col-span-6" label="Lote Sênior">
-            <input
-              value={form.lote_senior}
-              onChange={(e) => setForm((p) => ({ ...p, lote_senior: e.target.value.toUpperCase() }))}
-              className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 p-3 font-bold outline-none focus:ring-2 focus:ring-blue-200"
-              placeholder="AB..."
-            />
-          </Field>
-
-          <Field col="md:col-span-12" label="Observação (opcional)">
-            <input
-              value={form.observacao}
-              onChange={(e) => setForm((p) => ({ ...p, observacao: e.target.value }))}
-              className="w-full rounded-xl border-2 border-slate-100 bg-white p-3 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-200"
-              placeholder="Ex: caixa avariada, conferir entrada..."
-            />
-          </Field>
-
-          <div className="md:col-span-12">
             <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-2xl bg-blue-600 py-4 text-lg font-black text-white shadow-lg transition-all hover:bg-blue-700 disabled:opacity-60"
+              type="button"
+              onClick={resetItem}
+              style={{ background:"rgba(255,255,255,0.06)", border:`1px solid ${C.border}`, borderRadius:8, color:C.text, padding:"8px 16px", fontSize:11, fontWeight:800, cursor:"pointer" }}
             >
-              {loading ? "SALVANDO..." : "CONFIRMAR INVENTÁRIO"}
+              Novo Item
             </button>
           </div>
-        </form>
+
+          <form onSubmit={handleSalvar} style={{ padding:24 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(12,1fr)", gap:16 }}>
+
+              {/* Endereço */}
+              <div style={{ gridColumn:"span 4" }}>
+                <Field label="Local (Endereço)" icon={<MapPin size={13} color={C.pink}/>}>
+                  <input
+                    value={form.endereco}
+                    onChange={(e) => setForm((p) => ({ ...p, endereco: e.target.value.toUpperCase() }))}
+                    placeholder="D-22-1-1"
+                    style={{ ...inputStyle, borderColor: form.endereco && !parsed.ok ? C.red : C.border }}
+                  />
+                  <div style={{ fontSize:10, color: parsed.ok ? C.muted : C.red, fontWeight:700, marginTop:5 }}>
+                    {parsed.ok ? `${parsed.rua} • Local ${parsed.localNum} • Nível ${parsed.nivel}` : form.endereco ? "Formato inválido — use D-22-1-1" : "Padrão: D-22-1-1"}
+                  </div>
+                </Field>
+              </div>
+
+              {/* EAN */}
+              <div style={{ gridColumn:"span 4" }}>
+                <Field label="EAN (Código de Barras)" icon={<Barcode size={13} color={C.blue}/>} hint="Escaneie com o Zebra">
+                  <input
+                    ref={barcodeRef}
+                    value={form.codigo_barras}
+                    onChange={(e) => setForm((p) => ({ ...p, codigo_barras: e.target.value }))}
+                    placeholder="Escaneie aqui..."
+                    style={inputStyle}
+                  />
+                </Field>
+              </div>
+
+              {/* Código Produto */}
+              <div style={{ gridColumn:"span 4" }}>
+                <Field label="Código do Produto" icon={<Hash size={13} color={C.purple}/>}>
+                  <input
+                    value={form.codigo_produto}
+                    onChange={(e) => setForm((p) => ({ ...p, codigo_produto: e.target.value }))}
+                    placeholder="4000100006--U"
+                    style={inputStyle}
+                  />
+                </Field>
+              </div>
+
+              {/* Nome produto */}
+              <div style={{ gridColumn:"span 12" }}>
+                <Field label="Descrição do Produto" icon={<Package size={13} color={C.orange}/>}>
+                  <input
+                    value={form.nome_produto}
+                    onChange={(e) => setForm((p) => ({ ...p, nome_produto: e.target.value }))}
+                    placeholder="Nome do produto (preenchido automaticamente pelo EAN)..."
+                    style={inputStyle}
+                    required
+                  />
+                </Field>
+              </div>
+
+              {/* Qtd Sistêmica */}
+              <div style={{ gridColumn:"span 3" }}>
+                <Field label="Qtd Sistêmica (WMS)" icon={<Hash size={13} color={C.blue}/>}>
+                  <input
+                    type="number"
+                    value={form.qtd_sistemica}
+                    onChange={(e) => setForm((p) => ({ ...p, qtd_sistemica: e.target.value }))}
+                    placeholder="0"
+                    style={{ ...inputStyle, fontSize:22, fontWeight:900 }}
+                    required
+                  />
+                </Field>
+              </div>
+
+              {/* Qtd Física */}
+              <div style={{ gridColumn:"span 3", background:"rgba(74,163,255,0.06)", borderRadius:12, padding:12 }}>
+                <Field label="Qtd Física (Contada)" icon={<Hash size={13} color={C.green}/>}>
+                  <input
+                    type="number"
+                    value={form.qtd_fisica}
+                    onChange={(e) => setForm((p) => ({ ...p, qtd_fisica: e.target.value }))}
+                    placeholder="0"
+                    style={{ ...inputStyle, fontSize:28, fontWeight:900, background:"transparent", border:"none", color:C.green, padding:"6px 0" }}
+                    required
+                  />
+                </Field>
+              </div>
+
+              {/* Lote Indústria */}
+              <div style={{ gridColumn:"span 3" }}>
+                <Field label="Lote Indústria" icon={<Layers size={13} color={C.purple}/>}>
+                  <input
+                    value={form.lote_industria}
+                    onChange={(e) => setForm((p) => ({ ...p, lote_industria: e.target.value.toUpperCase() }))}
+                    placeholder="Ex: 88291"
+                    style={inputStyle}
+                  />
+                </Field>
+              </div>
+
+              {/* Lote Senior */}
+              <div style={{ gridColumn:"span 3" }}>
+                <Field label="Lote Senior (WMS)" icon={<Layers size={13} color={C.pink}/>}>
+                  <input
+                    value={form.lote_senior}
+                    onChange={(e) => setForm((p) => ({ ...p, lote_senior: e.target.value.toUpperCase() }))}
+                    placeholder="Ex: 1231017769"
+                    style={inputStyle}
+                  />
+                </Field>
+              </div>
+
+              {/* Validade */}
+              <div style={{ gridColumn:"span 3" }}>
+                <Field label="Validade" icon={<Calendar size={13} color={C.amber}/>}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <input
+                      type="date"
+                      value={form.validade}
+                      onChange={(e) => setForm((p) => ({ ...p, validade: e.target.value }))}
+                      style={{ ...inputStyle, flex:1 }}
+                    />
+                    {form.validade && (
+                      <span style={{ fontSize:9, fontWeight:900, padding:"4px 8px", borderRadius:6, background:`${vencInfo.color}18`, color:vencInfo.color, whiteSpace:"nowrap" }}>
+                        {vencInfo.badge}
+                      </span>
+                    )}
+                  </div>
+                </Field>
+              </div>
+
+              {/* Condição */}
+              <div style={{ gridColumn:"span 3" }}>
+                <Field label="Condição">
+                  <select
+                    value={form.condicao}
+                    onChange={(e) => setForm((p) => ({ ...p, condicao: e.target.value }))}
+                    style={{ ...inputStyle }}
+                  >
+                    {CONDICOES.map((c) => <option key={c} value={c}>{c === "BOM" ? "🟢 BOM" : "🔴 DANIFICADO"}</option>)}
+                  </select>
+                </Field>
+              </div>
+
+              {/* Tipo Divergência */}
+              <div style={{ gridColumn:"span 3" }}>
+                <Field label="Tipo de Divergência" icon={<AlertTriangle size={13} color={C.red}/>}>
+                  <select
+                    value={form.tipo_divergencia}
+                    onChange={(e) => setForm((p) => ({ ...p, tipo_divergencia: e.target.value }))}
+                    style={{ ...inputStyle, color: form.tipo_divergencia !== "NENHUMA" ? C.amber : C.muted }}
+                  >
+                    {TIPOS_DIVERGENCIA.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </Field>
+              </div>
+
+              {/* Observação */}
+              <div style={{ gridColumn:"span 12" }}>
+                <Field label="Observação (opcional)">
+                  <input
+                    value={form.observacao}
+                    onChange={(e) => setForm((p) => ({ ...p, observacao: e.target.value }))}
+                    placeholder="Ex: produto danificado, conferir entrada..."
+                    style={inputStyle}
+                  />
+                </Field>
+              </div>
+
+              {/* Botão */}
+              <div style={{ gridColumn:"span 12" }}>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  style={{
+                    width:"100%", padding:"16px",
+                    borderRadius:14, border:"none",
+                    background: loading ? "rgba(255,255,255,0.08)" : "linear-gradient(135deg,#8b5cf6,#4aa3ff)",
+                    color:"#fff", fontSize:15, fontWeight:900,
+                    cursor: loading ? "not-allowed" : "pointer",
+                    boxShadow: loading ? "none" : "0 8px 28px rgba(139,92,246,0.35)",
+                    opacity: loading ? 0.6 : 1,
+                    transition:"all .2s",
+                    letterSpacing:1,
+                  }}
+                >
+                  {loading ? "SALVANDO..." : "✓ CONFIRMAR AUDITORIA"}
+                </button>
+              </div>
+
+            </div>
+          </form>
+        </div>
+
       </div>
     </div>
   );
 };
 
-/* =================== UI pequenos =================== */
-
-const CardBI = ({ label, val, color, icon }) => {
-  const bg =
-    color === "blue"
-      ? "bg-gradient-to-r from-[#1967d2] to-[#174ea6]"
-      : color === "green"
-      ? "bg-gradient-to-r from-[#1e8e3e] to-[#137333]"
-      : color === "red"
-      ? "bg-gradient-to-r from-[#d93025] to-[#b31412]"
-      : color === "amber"
-      ? "bg-gradient-to-r from-[#f9ab00] to-[#f57c00]"
-      : color === "orange"
-      ? "bg-gradient-to-r from-[#fb8c00] to-[#ef6c00]"
-      : "bg-gradient-to-r from-[#64748b] to-[#475569]";
-
-  return (
-    <div className={`relative overflow-hidden rounded-xl p-5 text-white shadow-sm ${bg}`}>
-      <div className="flex items-start justify-between">
-        <span className="text-[12px] font-extrabold tracking-wide opacity-95">{label}</span>
-        <div className="opacity-95">{icon}</div>
-      </div>
-      <div className="mt-3">
-        <h3 className="text-[30px] leading-none font-black tracking-tight">{val}</h3>
-      </div>
-      <div className="absolute -right-6 -bottom-8 scale-[2.2] opacity-15">{icon}</div>
+const Field = ({ label, icon, hint, children }) => (
+  <div>
+    <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:9, fontWeight:900, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.40)", marginBottom:8 }}>
+      {icon}{label}
     </div>
-  );
-};
-
-const Field = ({ label, children, col, icon, highlight }) => (
-  <div className={`${col || ""} ${highlight ? "rounded-xl border-2 border-blue-200 bg-blue-50 p-3" : ""}`}>
-    <label className={`text-[10px] font-black uppercase ${highlight ? "text-blue-700" : "text-slate-400"} flex items-center gap-2`}>
-      {icon ? icon : null} {label}
-    </label>
-    <div className="mt-1">{children}</div>
+    {children}
+    {hint && <div style={{ fontSize:10, color:"rgba(255,255,255,0.28)", fontWeight:700, marginTop:5 }}>{hint}</div>}
   </div>
 );
-
-const MiniSelect = ({ label, value, onChange, options }) => (
-  <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
-    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</div>
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="mt-1 w-full bg-transparent text-[12px] font-extrabold text-slate-700 outline-none"
-    >
-      {options.map((op) => (
-        <option key={op} value={op}>
-          {op}
-        </option>
-      ))}
-    </select>
-  </div>
-);
-
-const MiniInput = ({ label, value, onChange, placeholder, readOnly, icon, hint, error }) => (
-  <div className={`rounded-md border px-3 py-2 ${error ? "border-red-200 bg-red-50" : "border-slate-200 bg-white"}`}>
-    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-      {icon ? icon : null} {label}
-    </div>
-    <input
-      value={value}
-      readOnly={readOnly}
-      onChange={(e) => onChange?.(e.target.value)}
-      placeholder={placeholder}
-      className={`mt-1 w-full bg-transparent text-[12px] font-extrabold outline-none ${
-        readOnly ? "text-slate-500" : error ? "text-red-700" : "text-slate-700"
-      }`}
-    />
-    {hint ? (
-      <div className={`mt-1 text-[10px] font-black ${error ? "text-red-600" : "text-slate-400"}`}>
-        {hint}
-      </div>
-    ) : null}
-  </div>
-);
-
-/* =================== Helpers =================== */
-
-function toNum(v) {
-  const n = Number(String(v).replace(",", "."));
-  return Number.isFinite(n) ? n : 0;
-}
-
-function toISODate(d) {
-  const yy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yy}-${mm}-${dd}`;
-}
-
-function parseEndereco(raw) {
-  const x = String(raw || "").trim().toUpperCase();
-  const m = x.match(/^([A-Z])(\d{2})(\d)(1)$/); // B1031 / G0571
-  if (!m) return { ok: false, endereco: x, rua: "", localNum: "", nivel: "" };
-
-  const ruaLetra = m[1];
-  const localNum = m[2];
-  const nivel = m[3];
-
-  return {
-    ok: true,
-    endereco: `${ruaLetra}${localNum}${nivel}1`,
-    rua: `Rua ${ruaLetra}`,
-    localNum,
-    nivel,
-  };
-}
-
-function fromISODate(iso) {
-  const [yy, mm, dd] = String(iso || "").split("-");
-  if (!yy || !mm || !dd) return null;
-  const d = new Date(Number(yy), Number(mm) - 1, Number(dd));
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function startOfDay(d) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-}
-
-function diffDays(a, b) {
-  const ms = 24 * 60 * 60 * 1000;
-  return Math.floor((a.getTime() - b.getTime()) / ms);
-}
-
-/**
- * bucket:
- * - SEM_VALIDADE
- * - VENCIDO (dias < 0)
- * - CRITICO_30D (0..30)
- * - CRITICO_90D (31..90)
- * - OK (>90)
- */
-function getValidadeInfo(validadeISO) {
-  if (!validadeISO) {
-    return { bucket: "SEM_VALIDADE", dias: null, badge: "Sem validade", label: "—" };
-  }
-  const vd = fromISODate(validadeISO);
-  if (!vd) return { bucket: "SEM_VALIDADE", dias: null, badge: "Sem validade", label: "—" };
-
-  const hoje = startOfDay(new Date());
-  const dias = diffDays(vd, hoje); // vd - hoje
-  if (dias < 0) return { bucket: "VENCIDO", dias, badge: "Vencido", label: `${validadeISO} (${dias}d)` };
-  if (dias <= 30) return { bucket: "CRITICO_30D", dias, badge: `Crítico ${dias}d`, label: `${validadeISO} (${dias}d)` };
-  if (dias <= 90) return { bucket: "CRITICO_90D", dias, badge: `A vencer ${dias}d`, label: `${validadeISO} (${dias}d)` };
-  return { bucket: "OK", dias, badge: `OK ${dias}d`, label: `${validadeISO} (${dias}d)` };
-}
 
 export default Inventario;
