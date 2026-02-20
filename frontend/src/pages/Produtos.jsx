@@ -127,6 +127,7 @@ const Produtos = () => {
         ::-webkit-scrollbar-track{background:rgba(255,255,255,0.04)}
         ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:99px}
         input,select{color-scheme:dark}
+        select option{background:#1a1a2e;color:#fff}
         input:focus{border-color:rgba(74,163,255,0.6) !important;box-shadow:0 0 0 3px rgba(74,163,255,0.12)}
         @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
         .fade{animation:fadeUp .35s ease both}

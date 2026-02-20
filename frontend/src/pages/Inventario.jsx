@@ -13,7 +13,7 @@ import {
 import { Calendar, MapPin, Barcode, Hash, Package, AlertTriangle, CheckCircle2, Clock, Layers } from "lucide-react";
 import {
   toISODate, parseEndereco, getValidadeBucket, getDiasParaVencer,
-  startOfDay, safeNum, TIPOS_DIVERGENCIA, CONDICOES,
+  startOfDay, safeNum, TIPOS_DIVERGENCIA, CONDICOES, TIPOS_ERRO,
 } from "../utils/estoqueUtils";
 
 // ─── Paleta ───────────────────────────────────────────────────────────────────
@@ -55,6 +55,7 @@ const inputStyle = {
 
 const Inventario = () => {
   const [loading,      setLoading]      = useState(false);
+  const [sessao,       setSessao]       = useState([]); // histórico da sessão
   const [numInventario, setNumInventario] = useState("");
 
   const [form, setForm] = useState({
@@ -68,6 +69,7 @@ const Inventario = () => {
     lote_senior:    "",
     validade:       "",
     condicao:       "BOM",
+    tipo_erro:        "NENHUM",
     tipo_divergencia: "NENHUMA",
     observacao:     "",
   });
@@ -161,6 +163,7 @@ const Inventario = () => {
       lote_senior:    "",
       validade:       "",
       condicao:       "BOM",
+      tipo_erro:        "NENHUM",
       tipo_divergencia: "NENHUMA",
       observacao:     "",
     }));
@@ -216,11 +219,22 @@ const Inventario = () => {
 
         // Qualidade
         condicao:         form.condicao,
+        tipo_erro:        form.tipo_erro,
         tipo_divergencia: form.tipo_divergencia,
         observacao:       form.observacao.trim(),
       });
 
-      alert("✅ Auditoria registrada!");
+      // Adiciona ao histórico da sessão
+      setSessao((prev) => [{
+        endereco:    parsed.endereco,
+        nome_produto:form.nome_produto.trim(),
+        qtd_sistemica: safeNum(form.qtd_sistemica),
+        qtd_fisica:    safeNum(form.qtd_fisica),
+        divergencia:   Number(divergencia ?? 0),
+        resultado,
+        validade_bucket: vencInfo.bucket,
+        horario: new Date().toLocaleTimeString("pt-BR", {hour:"2-digit",minute:"2-digit",second:"2-digit"}),
+      }, ...prev].slice(0, 10));
       resetItem();
     } catch (err) {
       console.error(err);
@@ -246,6 +260,7 @@ const Inventario = () => {
         ::-webkit-scrollbar-track{background:rgba(255,255,255,0.04)}
         ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:99px}
         input,select{color-scheme:dark}
+        select option{background:#1a1a2e;color:#fff}
         input:focus,select:focus{border-color:rgba(74,163,255,0.6) !important;box-shadow:0 0 0 3px rgba(74,163,255,0.12)}
         @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
         .fade{animation:fadeUp .35s ease both}
@@ -453,7 +468,20 @@ const Inventario = () => {
                     onChange={(e) => setForm((p) => ({ ...p, condicao: e.target.value }))}
                     style={{ ...inputStyle }}
                   >
-                    {CONDICOES.map((c) => <option key={c} value={c}>{c === "BOM" ? "🟢 BOM" : "🔴 DANIFICADO"}</option>)}
+                    {CONDICOES.map((c) => <option key={c} value={c}>{c==="BOM"?"🟢 BOM":c==="DANIFICADO"?"🔴 DANIFICADO":"🟡 VENCIDO"}</option>)}
+                  </select>
+                </Field>
+              </div>
+
+              {/* Tipo de Erro */}
+              <div style={{ gridColumn:"span 3" }}>
+                <Field label="Tipo de Erro" icon={<AlertTriangle size={13} color={C.red}/>}>
+                  <select
+                    value={form.tipo_erro}
+                    onChange={(e) => setForm((p) => ({ ...p, tipo_erro: e.target.value }))}
+                    style={{ ...inputStyle, color: form.tipo_erro !== "NENHUM" ? C.red : C.muted }}
+                  >
+                    {TIPOS_ERRO.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </Field>
               </div>
@@ -509,6 +537,63 @@ const Inventario = () => {
         </div>
 
       </div>
+
+      {/* ── HISTÓRICO DA SESSÃO ─────────────────────────────────────── */}
+      {sessao.length > 0 && (
+        <div className="fade" style={{ ...cardStyle, marginTop:16, overflow:"hidden", animationDelay:".15s" }}>
+          <div style={{ padding:"14px 20px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", background:"rgba(255,255,255,0.02)" }}>
+            <div>
+              <div style={{ fontSize:9, fontWeight:900, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,255,255,0.40)" }}>Sessão Atual</div>
+              <div style={{ fontSize:14, fontWeight:900, marginTop:3 }}>Últimos {sessao.length} itens auditados</div>
+            </div>
+            <button onClick={() => setSessao([])} style={{ background:"rgba(255,77,106,0.10)", border:"1px solid rgba(255,77,106,0.20)", borderRadius:8, color:"#ff4d6a", padding:"6px 14px", fontSize:10, fontWeight:900, cursor:"pointer", letterSpacing:1 }}>
+              LIMPAR
+            </button>
+          </div>
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead>
+                <tr style={{ background:"rgba(255,255,255,0.03)" }}>
+                  {["Horário","Local","Produto","Sis.","Fís.","Div.","Resultado"].map((h) => (
+                    <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:9, fontWeight:900, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.35)", borderBottom:`1px solid ${C.border}`, whiteSpace:"nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sessao.map((s, i) => {
+                  const divColor = s.divergencia===0 ? "#22d3a0" : s.divergencia<0 ? "#ff4d6a" : "#fbbf24";
+                  const resCfg  = {OK:{bg:"rgba(34,211,160,0.12)",color:"#22d3a0"},FALTA:{bg:"rgba(255,77,106,0.12)",color:"#ff4d6a"},SOBRA:{bg:"rgba(251,191,36,0.12)",color:"#fbbf24"},VENCIDO:{bg:"rgba(255,77,106,0.12)",color:"#ff4d6a"}};
+                  const res = resCfg[s.resultado] || resCfg.OK;
+                  return (
+                    <tr key={i} style={{ borderBottom:"1px solid rgba(255,255,255,0.04)", opacity: i===0?1:1-(i*0.07), transition:"background .15s" }}
+                      onMouseEnter={(e)=>e.currentTarget.style.background="rgba(255,255,255,0.025)"}
+                      onMouseLeave={(e)=>e.currentTarget.style.background="transparent"}>
+                      <td style={{ padding:"9px 14px", fontSize:10, fontWeight:800, color:"rgba(255,255,255,0.40)", fontFamily:"monospace" }}>{s.horario}</td>
+                      <td style={{ padding:"9px 14px", fontSize:11, fontWeight:900, color:"#4aa3ff" }}>{s.endereco}</td>
+                      <td style={{ padding:"9px 14px", fontSize:11, fontWeight:700, color:"rgba(255,255,255,0.80)", maxWidth:280, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.nome_produto}</td>
+                      <td style={{ padding:"9px 14px", textAlign:"center", fontSize:11, color:"rgba(255,255,255,0.50)" }}>{s.qtd_sistemica}</td>
+                      <td style={{ padding:"9px 14px", textAlign:"center", fontSize:11, fontWeight:900, color:"#4aa3ff" }}>{s.qtd_fisica}</td>
+                      <td style={{ padding:"9px 14px", textAlign:"center" }}>
+                        <span style={{ padding:"2px 8px", borderRadius:5, fontSize:10, fontWeight:900,
+                          background:s.divergencia===0?"rgba(34,211,160,0.10)":s.divergencia<0?"rgba(255,77,106,0.12)":"rgba(251,191,36,0.12)",
+                          color:divColor }}>
+                          {s.divergencia>0?`+${s.divergencia}`:s.divergencia}
+                        </span>
+                      </td>
+                      <td style={{ padding:"9px 14px", textAlign:"center" }}>
+                        <span style={{ padding:"2px 8px", borderRadius:5, fontSize:9, fontWeight:900, textTransform:"uppercase", background:res.bg, color:res.color }}>
+                          {s.resultado}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

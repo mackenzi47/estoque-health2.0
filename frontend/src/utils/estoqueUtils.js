@@ -173,4 +173,12 @@ export const TIPOS_DIVERGENCIA = [
   "ERRO DE POSIÇÃO",
 ];
 
-export const CONDICOES = ["BOM", "DANIFICADO"];
+export const CONDICOES = ["BOM", "DANIFICADO", "VENCIDO"];
+
+
+export const TIPOS_ERRO = [
+  "NENHUM",
+  "ERRO DE POSIÇÃO",
+  "ERRO DE LOTE",
+  "ERRO DE ESTADO",
+];
